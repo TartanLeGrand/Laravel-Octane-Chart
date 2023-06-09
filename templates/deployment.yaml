@@ -5,62 +5,83 @@ metadata:
   labels:
     {{- include "laravel-octane-chart.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "laravel-octane-chart.selectorLabels" . | nindent 6 }}
   template:
     metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       labels:
         {{- include "laravel-octane-chart.selectorLabels" . | nindent 8 }}
     spec:
-    {{- with .Values.imagePullSecrets }}
+      {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
-    {{- end }}
+      {{- end }}
+      serviceAccountName: {{ include "laravel-octane-chart.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
       initContainers:
-      - name: migrate
-        image: "{{ .Values.initContainer.image }}:{{ .Values.initContainer.tag }}"
-        imagePullPolicy: {{ .Values.initContainer.pullPolicy }}
-        command: {{ toYaml .Values.initContainer.command | nindent 10 }}
-      containers:
-      - name: {{ .Chart.Name }}
-        image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-        imagePullPolicy: {{ .Values.image.pullPolicy }}
-        ports:
-          - name: http
-            containerPort: 80
-            protocol: TCP
-        livenessProbe:
-          httpGet:
-            path: /api/health
-            port: http
-        readinessProbe:
-          httpGet:
-            path: /api/health
-            port: http
-        env:
-        {{- range .Values.env }}
-          - name: {{ .name }}
-            value: {{ .value | default "" }}
-            {{- if .valueFrom }}
-            valueFrom:
-              secretKeyRef:
-                name: {{ .valueFrom.secretKeyRef.name }}
-                key: {{ .valueFrom.secretKeyRef.key }}
+        - name: laravel-migrate
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          command: ['sh', '-c', 'php artisan migrate']
+          env:
+            {{- range .Values.env }}
+              - name: {{ .name }}
+                value: {{ .value | default "" }}
+                {{- if .valueFrom }}
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ .valueFrom.secretKeyRef.name }}
+                    key: {{ .valueFrom.secretKeyRef.key }}
+                {{- end }}
             {{- end }}
-        {{- end }}
-        resources:
-          {{- toYaml .Values.resources | nindent 12 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          env:
+            {{- range .Values.env }}
+              - name: {{ .name }}
+                value: {{ .value | default "" }}
+                {{- if .valueFrom }}
+                valueFrom:
+                  secretKeyRef:
+                    name: {{ .valueFrom.secretKeyRef.name }}
+                    key: {{ .valueFrom.secretKeyRef.key }}
+                {{- end }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+          readinessProbe:
+            httpGet:
+              path: /
+              port: http
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-    {{- with .Values.affinity }}
-    affinity:
-      {{- toYaml . | nindent 8 }}
-    {{- end }}
-  {{- with .Values.tolerations }}
-  tolerations:
-    {{- toYaml . | nindent 8 }}
-  {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
